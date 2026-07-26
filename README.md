@@ -1,1 +1,1 @@
-# puffy-chess-engine
+# Puffy Chess Engine
