@@ -4,6 +4,7 @@
 #include <bit>
 #include <stdexcept>
 #include <concepts>
+#include <iostream>
 
 namespace chess {
     using u64 = std::uint64_t;
@@ -62,6 +63,10 @@ namespace chess {
         inline std::array<Bitboard, 64> KING_ATTACKS_BB;
     }
 
+    Color operator~(Color color) noexcept {
+        return static_cast<Color>(static_cast<int>(color) ^ 1);
+    }
+
     constexpr Bitboard squareBB(Square square) noexcept {
         if (square == Square::NO_SQUARE) {
             return 0ULL;
@@ -79,6 +84,24 @@ namespace chess {
         T lsb = getLsb<T>(value);
         value &= value - 1;
         return lsb;
+    }
+
+    std::string squareToString(Square square) noexcept;
+
+    Color pieceColor(Piece piece) noexcept {
+        return static_cast<Color>(static_cast<u8>(piece) / 6);
+    }
+
+    PieceType pieceType(Piece piece) noexcept {
+        return static_cast<PieceType>(static_cast<u8>(piece) % 6);
+    }
+
+    size_t pieceIndex(Piece piece) noexcept {
+        return static_cast<size_t>(pieceColor(piece)) * 6 + static_cast<size_t>(pieceType(piece));
+    }
+
+    size_t pieceIndex(Color color, PieceType type) noexcept {
+        return static_cast<size_t>(color) * 6 + static_cast<size_t>(type);
     }
 
     template<typename T, size_t bufferSize>
@@ -131,6 +154,10 @@ namespace chess {
             m_Data[m_Size++] = std::move(value);
         }
 
+        size_t size() const noexcept {
+            return m_Size;
+        }
+
         constexpr T* begin() noexcept {
             return m_Data;
         }
@@ -177,6 +204,8 @@ namespace chess {
             return data;
         }
 
+        constexpr std::string toUci() const noexcept;
+
         u16 data;
     };
 
@@ -196,6 +225,27 @@ namespace chess {
             return board[static_cast<size_t>(square)];
         }
 
+        Bitboard& bbType(Color color, PieceType type) noexcept {
+            return pieceBitboards[pieceIndex(color, type)];
+        }
+
+        const Bitboard& bbType(Color color, PieceType type) const noexcept {
+            return pieceBitboards[pieceIndex(color, type)];
+        }
+
+        Bitboard allBB() const noexcept {
+
+        }
+
+        Bitboard colorBB(Color color) const noexcept {
+            return bbType(color, PieceType::PAWN) | bbType(color, PieceType::KNIGHT) | bbType(color, PieceType::BISHOP) |
+                   bbType(color, PieceType::ROOK) | bbType(color, PieceType::QUEEN) | bbType(color, PieceType::KING);
+        }
+
+        Bitboard knightAttacksBB(Square square) const noexcept {
+            return constants::KNIGHT_ATTACKS_BB[static_cast<size_t>(square)];
+        }
+
         MoveList generateMoves() const noexcept {
             MoveList moves;
 
@@ -213,7 +263,20 @@ namespace chess {
 
             while (knights) {
                 Square from = popLsb<Square>(knights);
-                // Generate knight moves for the square 'from'
+                u64 attacks = knightAttacksBB(from) & ~colorBB(sideToMove);
+
+                u64 captures = attacks & colorBB(~sideToMove);
+                u64 quiets = attacks & ~colorBB(~sideToMove);
+
+                while (captures) {
+                    Square to = popLsb<Square>(captures);
+                    moves.push_back(Move(from, to, MoveType::CAPTURE));
+                }
+
+                while (quiets) {
+                    Square to = popLsb<Square>(quiets);
+                    moves.push_back(Move(from, to, MoveType::QUIET));
+                }
             }
 
             while (bishops) {
@@ -243,13 +306,18 @@ namespace chess {
 
         std::array<Bitboard, 12> pieceBitboards;
         std::array<Piece, 64> board;
-
         Color sideToMove;
+
     };
 
     u64 perft(Position& pos, int depth) {
         if (depth == 0) {
             return 1ULL;
+        }
+
+        else if (depth == 1) {
+            Position::MoveList moves = pos.generateLegalMoves();
+            return moves.size();
         }
 
         Position::MoveList moves = pos.generateLegalMoves();
@@ -263,6 +331,21 @@ namespace chess {
         }
 
         return nodes;
-    } 
+    }
 
+    void dividePerft(Position& pos, int depth) {
+        Position::MoveList moves = pos.generateLegalMoves();
+
+        u64 totalNodes = 0ULL;
+
+        for (const Move& move : moves) {
+            pos.doMove(move);
+            u64 nodes = perft(pos, depth - 1);
+            pos.undoMove();
+            totalNodes += nodes;
+            std::cout << move.toUci() << ": " << nodes << "\n";
+        }
+
+        std::cout << "Total Nodes: " << totalNodes << std::endl;
+    }
 }
